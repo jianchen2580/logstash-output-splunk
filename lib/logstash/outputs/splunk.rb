@@ -13,8 +13,6 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
 
   attr_accessor :is_batch
 
-  VALID_METHODS = ["put", "post", "patch", "delete", "get", "head"]
-
   RETRYABLE_MANTICORE_EXCEPTIONS = [
     ::Manticore::Timeout,
     ::Manticore::SocketException,
@@ -39,19 +37,17 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   # URL to use
   config :url, :validate => :string, :required => :true
 
-  # The HTTP Verb. One of "put", "post", "patch", "delete", "get", "head"
-  config :http_method, :validate => VALID_METHODS, :required => :true
-
   # Custom headers to use
   # format is `headers => ["X-My-Header", "%{host}"]`
   config :headers, :validate => :hash, :default => {}
+
+  # Splunk HTTP Event Collector tokens to use
+  config :token, :validate => :string, :required => :true
 
   # Content type
   #
   # If not specified, this defaults to the following:
   #
-  # * if format is "json", "application/json"
-  # * if format is "form", "application/x-www-form-urlencoded"
   config :content_type, :validate => :string
 
   # Set this to false if you don't want this output to retry failed requests
@@ -63,6 +59,9 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   # If you would like to consider some non-2xx codes to be successes
   # enumerate them here. Responses returning these codes will be considered successes
   config :ignorable_codes, :validate => :number, :list => true
+
+  # Set this to false if you don't want batch
+  config :is_batch, :validate => :boolean, :default => true
 
   # This lets you choose the structure and parts of the event that are sent.
   #
@@ -80,40 +79,25 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   #
   # If message, then the body will be the result of formatting the event according to message
   #
-  # Otherwise, the event is sent as json.
-  config :format, :validate => ["json", "json_batch", "form", "message"], :default => "json"
-
   # Set this to true if you want to enable gzip compression for your http requests
   config :http_compression, :validate => :boolean, :default => false
 
   config :message, :validate => :string
 
   def register
-    @http_method = @http_method.to_sym
-
     # We count outstanding requests with this queue
     # This queue tracks the requests to create backpressure
     # When this queue is empty no new requests may be sent,
     # tokens must be added back by the client on success
     @request_tokens = SizedQueue.new(@pool_max)
     @pool_max.times {|t| @request_tokens << true }
-
     @requests = Array.new
-
-    if @content_type.nil?
-      case @format
-        when "form" ; @content_type = "application/x-www-form-urlencoded"
-        when "json" ; @content_type = "application/json"
-        when "json_batch" ; @content_type = "application/json"
-        when "message" ; @content_type = "text/plain"
-      end
-    end
-
-    @is_batch = @format == "json_batch"
-
+    @content_type = "application/json"
+    @is_batch = @is_batch
     @headers["Content-Type"] = @content_type
 
-    validate_format!
+    # Splunk HEC token
+    @headers["Authorization"] = "Splunk " + @token
 
     # Run named Timer as daemon thread
     @timer = java.util.Timer.new("Splunk Output #{self.params['id']}", true)
@@ -236,7 +220,7 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
     end
 
     # Create an async request
-    response = client.send(@http_method, url, :body => body, :headers => headers).call
+    response = client.send(:post, url, :body => body, :headers => headers).call
 
     if !response_success?(response)
       if retryable_response?(response)
@@ -254,7 +238,6 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
     will_retry = retryable_exception?(exception)
     log_failure("Could not fetch URL",
                 :url => url,
-                :method => @http_method,
                 :body => body,
                 :headers => headers,
                 :message => exception.message,
@@ -299,14 +282,10 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   # Format the HTTP body
   def event_body(event)
     # TODO: Create an HTTP post data codec, use that here
-    if @format == "json"
-      LogStash::Json.dump(map_event(event))
-    elsif @format == "message"
-      event.sprintf(@message)
-    elsif @format == "json_batch"
+    if @is_batch
       event.map {|e| LogStash::Json.dump(map_event(e)) }.join("\n")
     else
-      encode(map_event(event))
+      LogStash::Json.dump(map_event(event))
     end
   end
 
@@ -361,22 +340,5 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
     return hash.collect do |key, value|
       CGI.escape(key) + "=" + CGI.escape(value.to_s)
     end.join("&")
-  end
-
-
-  def validate_format!
-    if @format == "message"
-      if @message.nil?
-        raise "message must be set if message format is used"
-      end
-
-      if @content_type.nil?
-        raise "content_type must be set if message format is used"
-      end
-
-      unless @mapping.nil?
-        @logger.warn "mapping is not supported and will be ignored if message format is used"
-      end
-    end
   end
 end
