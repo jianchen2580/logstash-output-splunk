@@ -48,7 +48,7 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   config :is_raw, :validate => :boolean, :default => true
 
   # Splunk Channel Identifier GUID
-  config :channel_identifier, :validate => :string, :required => true
+  config :channel_identifier, :validate => :string, :required => false
 
   # Content type
   #
@@ -106,7 +106,9 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
 
     # Splunk HEC token
     @headers["Authorization"] = "Splunk " + @token
-    @headers["X-Splunk-Request-Channel"] = @channel_identifier
+    if @channel_identifier
+      @headers["X-Splunk-Request-Channel"] = @channel_identifier
+    end
 
     # Run named Timer as daemon thread
     @timer = java.util.Timer.new("Splunk Output #{self.params['id']}", true)
@@ -293,7 +295,7 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
     # TODO: Create an HTTP post data codec, use that here
     if @is_batch
       if @is_raw
-        event.map {|e| map_event(e).fetch("event") }.join("\n")
+        event.map {|e| map_event(e).fetch("message") }.join("\n")
       else
         event.map {|e| LogStash::Json.dump(map_event(e)) }.join("\n")
       end
@@ -328,10 +330,11 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
 
   def map_event(event)
     if @mapping
-      convert_mapping(@mapping, event)
+      msg_body = convert_mapping(@mapping, event)
     else
-      event.to_hash
+      msg_body = event.to_hash
     end
+    {"event" => msg_body}
   end
 
   def event_headers(event)
