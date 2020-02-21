@@ -44,6 +44,12 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   # Splunk HTTP Event Collector tokens to use
   config :token, :validate => :string, :required => :true
 
+  # Splunk HTTP body is raw data
+  config :is_raw, :validate => :boolean, :default => true
+
+  # Splunk Channel Identifier GUID
+  config :channel_identifier, :validate => :string, :required => true
+
   # Content type
   #
   # If not specified, this defaults to the following:
@@ -94,10 +100,13 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
     @requests = Array.new
     @content_type = "application/json"
     @is_batch = @is_batch
+    @is_raw = @is_raw
+    @channel_identifier = @channel_identifier
     @headers["Content-Type"] = @content_type
 
     # Splunk HEC token
     @headers["Authorization"] = "Splunk " + @token
+    @headers["X-Splunk-Request-Channel"] = @channel_identifier
 
     # Run named Timer as daemon thread
     @timer = java.util.Timer.new("Splunk Output #{self.params['id']}", true)
@@ -283,7 +292,11 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   def event_body(event)
     # TODO: Create an HTTP post data codec, use that here
     if @is_batch
-      event.map {|e| LogStash::Json.dump(map_event(e)) }.join("\n")
+      if @is_raw
+        event.map {|e| map_event(e).fetch("event") }.join("\n")
+      else
+        event.map {|e| LogStash::Json.dump(map_event(e)) }.join("\n")
+      end
     else
       LogStash::Json.dump(map_event(event))
     end

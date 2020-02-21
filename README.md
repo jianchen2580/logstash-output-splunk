@@ -11,9 +11,12 @@ It is fully free and fully open source. The license is Apache 2.0, meaning you a
 <pre><code>
 output {
   splunk {
-    url => "https://localhost:8080/services/collector/event/1.0"
+    url => "https://localhost:8080/services/collector/raw"
     # HTTP Event Collector token
     token => "xxxxxxx-xxxx-xxxx-xxxx-xxxxxx"
+    # Channel Identifier GUID
+    channel_identifier => "FE0ECFAD-13D5-401B-847D-77833BD77133"
+    is_raw => true
     is_batch => true
     mapping => {
      "event" => "%{message}"
