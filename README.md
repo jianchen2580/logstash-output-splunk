@@ -18,9 +18,6 @@ output {
     channel_identifier => "FE0ECFAD-13D5-401B-847D-77833BD77133"
     is_raw => true
     is_batch => true
-    mapping => {
-     "event" => "%{message}"
-    }
   }
 }
 </code></pre>

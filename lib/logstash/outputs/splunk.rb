@@ -294,11 +294,7 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
   def event_body(event)
     # TODO: Create an HTTP post data codec, use that here
     if @is_batch
-      if @is_raw
-        event.map {|e| map_event(e).fetch("message") }.join("\n")
-      else
-        event.map {|e| LogStash::Json.dump(map_event(e)) }.join("\n")
-      end
+      event.map {|e| LogStash::Json.dump(map_event(e)) }.join("\n")
     else
       LogStash::Json.dump(map_event(event))
     end
@@ -330,11 +326,10 @@ class LogStash::Outputs::Splunk < LogStash::Outputs::Base
 
   def map_event(event)
     if @mapping
-      msg_body = convert_mapping(@mapping, event)
+      convert_mapping(@mapping, event)
     else
-      msg_body = event.to_hash
+      event.to_hash
     end
-    {"event" => msg_body}
   end
 
   def event_headers(event)
